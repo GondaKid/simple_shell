@@ -25,7 +25,7 @@ int process_redirect(char** args, char** file_name);
 void exec_simple(char** args, int* bgFlag);
 void exec_redirect(char** args, int* redirectFlag, char* file_name);
 void exec_piped(char** args, char** args_piped);
-void handle_last_cmd(char** str, char** last_cmd);
+int handle_last_cmd(char* str, const char* last_cmd);
 // ------------------------------
 
 int main(void) {
@@ -49,8 +49,12 @@ int main(void) {
         if (take_input(inputString))
             continue;
 
-        // handle last command
-        handle_last_cmd(&inputString, &last_cmd);
+        // handle last command, return 0 if no command in history
+        if (handle_last_cmd(inputString, last_cmd) == 0)
+            continue;
+
+        // Save last command
+        strncpy(last_cmd, inputString, MAX_LENGTH);
 
         // process
         execFlag = process_string(inputString, args, args_piped, &bgFlag, &redirectFlag, &file_name);
@@ -69,7 +73,6 @@ int main(void) {
             exec_piped(args, args_piped);
 
         // save last command
-        strncpy(last_cmd, inputString, MAX_LENGTH);
     }
     return 0;
 }
@@ -100,16 +103,19 @@ void print_info() {
 
     // print shell info line
     printf("%s", cwd);
+    // flush the buffer
+    fflush(stdout);
 }
 
-void handle_last_cmd(char** str, char** last_cmd) {
+int handle_last_cmd(char* str, const char* last_cmd) {
     if (strcmp(str, "!!") == 0) {
         if (strcmp(last_cmd, "") == 0) {
             printf("No command in history!\n");
-            return;
+            return 0;
         } else
             strcpy(str, last_cmd);
     }
+    return 1;
 }
 
 void exec_simple(char** args, int* bgFlag) {
@@ -126,7 +132,7 @@ void exec_simple(char** args, int* bgFlag) {
         if (grandChild == 0) {
             // grand child running
             if (execvp(args[0], args) < 0) {
-                printf("\nCould not execute command..");
+                printf("Could not execute command..\n");
             }
             exit(0);
         }
@@ -153,18 +159,18 @@ void exec_redirect(char** args, int* redirectFlag, char* file_name) {
         return;
     } else if (child == 0) {
         if (*redirectFlag == 1) {
-            int fd = open(file_name, O_WRONLY);
+            int fd = open(file_name, O_WRONLY | O_CREAT | O_TRUNC);
             dup2(fd, STDOUT_FILENO);
-            // close(fd);
+            close(fd);
         }
         if (*redirectFlag == 2) {
             int fd = open(file_name, O_RDONLY);
             dup2(fd, STDIN_FILENO);
-            // close(fd);
+            close(fd);
         }
         // execute cmd
         if (execvp(args[0], args) < 0) {
-            printf("\nCould not execute redirect command..");
+            printf("Could not execute redirect command..\n");
             exit(0);
         }
     }
@@ -197,7 +203,7 @@ void exec_piped(char** args, char** args_piped) {
         close(pipefd[1]);
 
         if (execvp(args[0], args) < 0) {
-            printf("\nCould not execute command 1..");
+            printf("Could not execute command 1..\n");
             exit(0);
         }
     } else {
@@ -216,14 +222,14 @@ void exec_piped(char** args, char** args_piped) {
             dup2(pipefd[0], STDIN_FILENO);
             close(pipefd[0]);
             if (execvp(args_piped[0], args_piped) < 0) {
-                printf("\nCould not execute command 2..");
+                printf("Could not execute command 2..\n");
                 exit(0);
             }
         } else {
             // parent executing, waiting for two children
             wait(NULL);
-            wait(NULL);
         }
+        wait(NULL);
     }
 
     return;
@@ -262,7 +268,7 @@ int exec_built_in(char** args) {
 
     switch (switchBuiltIns) {
         case 1:
-            printf("\nGoodbye\n");
+            printf("Goodbye!\n");
             exit(0);
         case 2:
             chdir(args[1]);
@@ -297,6 +303,7 @@ void parseArgs(char* str, char** args, int* bgFlag) {
         if (strlen(args[i]) == 0)
             i--;
     }
+
     if (strcmp(args[i - 1], "&") == 0) {
         args[i - 1] = NULL;
         *bgFlag = 1;
